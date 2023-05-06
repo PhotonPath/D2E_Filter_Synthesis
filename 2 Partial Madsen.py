@@ -129,3 +129,4 @@ for fourier_coefficient in range(0, Lattice_Order+1):
 plt.plot(np.abs(time_domain_estimate)**2, label="Reconstructed Lattice")
 plt.grid()
 plt.legend()
+plt.show()

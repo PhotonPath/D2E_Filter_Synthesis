@@ -52,16 +52,19 @@ output_power = Pbb.calculate_outputs(input_field, S, dB=False)[:, 0]
 output_field = Pbb.calculate_field_outputs(input_field, S)[:, 0]
 plt.plot(np.angle(output_field))
 plt.plot(np.abs(output_field)**2)
+plt.show()
+
 # Plotting Power Output
 # plt.figure(1)
 # plt.plot(frequencies, output_power)
 # plt.grid()
+# plt.show()
 
 # Plotting Power Output Fourier Transform
 # plt.figure(2)
 # output_power_fft = np.fft.fft(output_power) / n_points
 # plt.scatter(x, output_power_fft[0:Lattice_Order+1])
 # plt.grid()
-
+# plt.show()
 
 

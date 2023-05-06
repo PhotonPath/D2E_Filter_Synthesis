@@ -368,4 +368,5 @@ plt.xlabel("Frequencies")
 plt.ylabel("Filter dB Transfer Function")
 plt.grid()
 plt.legend()
+plt.show()
 

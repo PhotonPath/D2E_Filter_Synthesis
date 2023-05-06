@@ -1,7 +1,6 @@
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import tkinter as tk
-import numpy as np
 
 """
 Code Data 2023/04/20
@@ -14,6 +13,7 @@ import numpy as np
 import scipy.signal as ss
 
 # Function for BACKFORTH MADSEN
+
 
 def calculate_next_layer_balance(lattice_order, a_n, b_n, k, phi, n):
     """

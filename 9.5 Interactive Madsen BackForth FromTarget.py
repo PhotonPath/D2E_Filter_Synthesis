@@ -1,19 +1,17 @@
+"""
+Code Data 2023/04/20
+Authors: Mattia, Doug
+
+Synthesis using BACKFORTH function from MADSEN
+"""
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import tkinter as tk
-import numpy as np
-
-"""
-Code Data 2023/04/20
-Author Mattia
-"""
-
 import Photonic_building_block as Pbb
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as ss
 
-# Function for BACKFORTH MADSEN
 
 def calculate_next_layer_balance(lattice_order, a_n, b_n, k, phi, n):
     """
@@ -41,6 +39,7 @@ def calculate_next_layer_balance(lattice_order, a_n, b_n, k, phi, n):
             new_a[i] = np.sqrt(1 - k) * np.exp(-phi * 1j) * a_n[i - 1] - np.sqrt(k) * b_n[i]
             new_b[i] = np.sqrt(k) * np.exp(-phi * 1j) * a_n[i - 1] + np.sqrt(1 - k) * b_n[i]
     return new_a, new_b
+
 
 def calculate_prev_layer(lattice_order, a_n, b_n, n):
     """
@@ -78,6 +77,7 @@ def calculate_prev_layer(lattice_order, a_n, b_n, n):
         prev_a[i] = (a_n[i + 1] * np.sqrt(1 - k) + b_n[i + 1] * np.sqrt(k)) * np.exp(phi * 1j)
     return k, phi, prev_a, prev_b
 
+
 def find_balance_phase(lattice_k, wanted_k):
     """
     :param lattice_k: Power ratio of the n coupler (assuming that both couplers of the balance have the same value)
@@ -94,6 +94,7 @@ def find_balance_phase(lattice_k, wanted_k):
         return 0
     else:
         return np.pi
+
 
 def find_correction_phase(lattice_k, coupler_estimate, phis_estimate):
     """
@@ -148,6 +149,7 @@ def find_correction_phase(lattice_k, coupler_estimate, phis_estimate):
         bs_n.append(b_next)
     return as_n, bs_n, np.array(lattice_phases)
 
+
 def field_from_z_coefficients(a_n, num_points):
     """
     Generate the function f from the z-coefficients a_n
@@ -160,6 +162,7 @@ def field_from_z_coefficients(a_n, num_points):
     for fourier_coefficient in range(len(a_n)):
         f = f + np.exp(-fourier_coefficient * 2j * np.pi * x) * a_n[fourier_coefficient]
     return f
+
 
 def find_valid_b(lattice_order, a_n, gamma=1, to_plot=False):
     """
@@ -224,6 +227,7 @@ def find_valid_b(lattice_order, a_n, gamma=1, to_plot=False):
 
     return a_n, b_n
 
+
 def plot_roots(a_n, color="black", width=2, unit_circle=False):
     """
     :param a_n: polynomial you want to plot.
@@ -241,6 +245,7 @@ def plot_roots(a_n, color="black", width=2, unit_circle=False):
         y_circle = np.sin(t_circle)
         plt.plot(x_circle, y_circle, color='black')
     plt.grid()
+
 
 def reverse_transfer_function(a_n, b_n):
     """
@@ -263,6 +268,7 @@ def reverse_transfer_function(a_n, b_n):
             ks[-i - 1], phis[-i - 1], _, _ = calculate_prev_layer(coefficient_order - 1, a[-i - 1], b[-i - 1], -i - 1)
     return ks, phis, a, b
 
+
 def z_cut(f, f_index):
     """
     Cut the function up to the f_index harmonic
@@ -281,59 +287,58 @@ def z_cut(f, f_index):
     cut_field = field_from_z_coefficients(fft_f_coefficients, num_points)
     return cut_field, np.array(fft_f_coefficients)
 
-# GUI
 
+# GUI
 class PlotGUI(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        # Geometry
-        self.secondary_window = tk.Toplevel(self)
+        # Windows
         self.dimensions = (600, 600)
         self.title("Controller")
-        self.secondary_window.title("Lattice")
-        self.geometry(f"{self.dimensions[0]}x{self.dimensions[1]}")
-        self.secondary_window.geometry(f"{self.dimensions[0]}x{self.dimensions[1]}")
+        self.geometry(f"{self.dimensions[0]}x{self.dimensions[1]}+0+0")
         self.resizable(False, False)
+
+        self.secondary_window = tk.Toplevel(self)
+        self.secondary_window.title("Lattice")
+        self.secondary_window.geometry(f"{self.dimensions[0]}x{self.dimensions[1]}+600+0")
         self.secondary_window.resizable(False, False)
 
         # Canvas Circles
-        self.canvas = tk.Canvas(self)
-        self.canvas.pack(expand=True, fill="both")
+        self.canvas_dimensions = (400, 400)
+        self.canvas = tk.Canvas(self, width=self.canvas_dimensions[0], height=self.canvas_dimensions[1],
+                                bg="white")
+        self.canvas.grid(row=0, column=0, padx=10, pady=10)
 
         # Canvas Drawing
-        self.fig = Figure(figsize=(5, 4), dpi=100)
+        self.fig = Figure(figsize=(5, 5), dpi=100)
         self.fig_subplot = self.fig.add_subplot(111)
         self.canvas_plot = FigureCanvasTkAgg(self.fig, master=self.secondary_window)
-        self.canvas_plot.get_tk_widget().pack(expand=True, fill="both")
-
-        # Scrollbar K
-        self.canvas_down = tk.Canvas(self, height=20)
-        self.canvas_down.pack(side=tk.BOTTOM, fill='x')
-        self.scrollbar_text = tk.Label(self.canvas_down, height=1, width=15, text="K Value 0.50")
-        self.scrollbar_text.pack(side=tk.LEFT)
-        self.scrollbar = tk.Scrollbar(self.canvas_down, orient='horizontal', command=self.update_k)
-        self.scrollbar.set(0.5, 0.5)
-        self.scrollbar.pack(side=tk.BOTTOM, fill='x')
+        self.canvas_plot.get_tk_widget().grid(row=0, column=0, sticky="nesw")
 
         # Circles
         self.lattice_order = 5
         self.n_circles = self.lattice_order
         self.selected_circle = 0
         self.is_circle_selected = False
-        self.circles_position = [((0.75*np.cos(t)+1)*self.dimensions[0]/2, (0.75*np.sin(v)+1)*self.dimensions[1]/2) for (t, v) in zip(np.linspace(0, np.pi*2, self.n_circles, endpoint=False), np.linspace(0, np.pi*2, self.n_circles, endpoint=False))]
+        self.circles_position = [((0.45 * np.cos(t) + 1) * self.canvas_dimensions[0] / 2,
+                                  (0.45 * np.sin(v) + 1) * self.canvas_dimensions[1] / 2)
+                                 for (t, v) in zip(np.linspace(0, np.pi * 2,
+                                                               self.n_circles, endpoint=False),
+                                                   np.linspace(0, np.pi * 2,
+                                                               self.n_circles, endpoint=False))]
 
         # Event
         self.draw_all_circles()
-        self.bind('<Motion>', self.move_circle)
-        self.bind('<Button-1>', self.update_selected_circle_status)
+        self.canvas.bind('<Motion>', self.move_circle)
+        self.canvas.bind('<Button-1>', self.update_selected_circle_status)
 
         # Lattice Stuff
         self.n_points = 500
         self.c = 299.792458  # um * THz
         self.dL = 30  # um
         self.wavelength_neff = 1.55  # um
-        self.neff = 1.46  # @ wavelength_neff
+        self.neff = 1.49  # @ wavelength_neff
         self.ng = 1.52  # @ wavelength_neff
         self.FSR = self.c / self.dL / self.ng  # THz
         self.frequencies = np.linspace(192, 192 + self.FSR, self.n_points)
@@ -342,16 +347,74 @@ class PlotGUI(tk.Tk):
         self.K = 0.5  # No wavelength dependent coupler
         self.input_field = np.array([[1, 0], [0, 0]])
         self.losses_propagation_parameter = {
-            'A': 0,
-            'B': 0,
-            'C': 0,
-            'D': 0,
-            'wl1': 1.5,
-            'wl2': 1.6
+            'A': 0.4,  # dB/cm
+            'B': 4655.664,  # um ** -2
+            'C': 3.614e-04,  # um ** 2
+            'D': 0.05,  # dB/cm
+            'wl1': 1.502293,  # um
+            'wl2': 1.511449  # um
         }
-        self.losses_coupling = 0
+        self.losses_coupling = -0.5  # dB
         self.heater_order = ['B', 'U'] * self.lattice_order + ['B']
         self.lattice = self.generate_lattice()
+
+        # Input K value in scroll bar
+        self.canvas_down = tk.Canvas(self)
+        self.canvas_down.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        self.scrollbar_text = tk.Label(self.canvas_down, text="K Value 0.50")
+        self.scrollbar_text.pack(side="left")
+        self.scrollbar = tk.Scrollbar(self.canvas_down,
+                                      orient='horizontal', command=self.update_k)
+        self.scrollbar.set(0.5, 0.5)
+        self.scrollbar.pack(side="left", fill="x", expand=True)
+
+        # Create the editable parameters column
+        param_frame = tk.Frame(self)
+        param_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+
+        # Input lattice order
+        self.lattice_order_text = tk.Label(param_frame, text="Lattice order", width=10, anchor="w", justify="left")
+        self.lattice_order_text.grid(row=0, column=0, sticky="NSEW")
+        self.lattice_order_input = tk.Entry(param_frame, width=10)
+        self.lattice_order_input.insert(0, "{}".format(self.lattice_order))
+        self.lattice_order_input.grid(row=1, column=0, padx=5, pady=5)
+        self.lattice_order_input.bind('<Return>', self.update_pars)
+
+        # Input neff
+        self.neff_text = tk.Label(param_frame, text="neff", width=5, anchor="w", justify="left")
+        self.neff_text.grid(row=2, column=0, sticky="NSEW")
+        self.neff_input = tk.Entry(param_frame, width=10)
+        self.neff_input.insert(0, "{}".format(self.neff))
+        self.neff_input.grid(row=3, column=0, padx=5, pady=5)
+        self.neff_input.bind('<Return>', self.update_pars)
+
+        # Input dL
+        self.dL_text = tk.Label(param_frame, text="dL", width=5, anchor="w", justify="left")
+        self.dL_text.grid(row=4, column=0, sticky="NSEW")
+        self.dL_input = tk.Entry(param_frame, width=10)
+        self.dL_input.insert(0, "{}".format(self.dL))
+        self.dL_input.grid(row=5, column=0, padx=5, pady=5)
+        self.dL_input.bind('<Return>', self.update_pars)
+
+        # Input ng
+        self.ng_text = tk.Label(param_frame, text="ng", width=5, anchor="w", justify="left")
+        self.ng_text.grid(row=6, column=0, sticky="NSEW")
+        self.ng_input = tk.Entry(param_frame, width=10)
+        self.ng_input.insert(0, "{}".format(self.ng))
+        self.ng_input.grid(row=7, column=0, padx=5, pady=5)
+        self.ng_input.bind('<Return>', self.update_pars)
+
+        # Input coupling losses
+        self.losses_coupling_text = tk.Label(param_frame, text="Coupling losses", width=15, anchor="w", justify="left")
+        self.losses_coupling_text.grid(row=8, column=0, sticky="NSEW")
+        self.losses_coupling_input = tk.Entry(param_frame, width=10)
+        self.losses_coupling_input.insert(0, "{}".format(self.losses_coupling))
+        self.losses_coupling_input.grid(row=9, column=0, padx=5, pady=5)
+        self.losses_coupling_input.bind('<Return>', self.update_pars)
+
+        # Button to reset circle positions
+        self.reset_button = tk.Button(param_frame, text="Reset Positions", command=self.reset_circles)
+        self.reset_button.grid(row=10, column=0, padx=5, pady=5)
 
         # Plot
         self.update_plot()
@@ -369,7 +432,8 @@ class PlotGUI(tk.Tk):
 
     def update_plot(self):
         self.fig_subplot.clear()
-        circles_complex_data = [(x*4/self.dimensions[0]-2+1j* (y*4/self.dimensions[1]-2)) for (x, y) in self.circles_position]
+        circles_complex_data = [(x*4/self.canvas_dimensions[0]-2+1j * (y*4/self.canvas_dimensions[1]-2))
+                                for (x, y) in self.circles_position]
         circles_polynomial_from_roots = np.poly(circles_complex_data)
         circles_polynomial_from_roots = circles_polynomial_from_roots[::-1]
         phase = np.angle(circles_polynomial_from_roots[0])
@@ -399,7 +463,9 @@ class PlotGUI(tk.Tk):
     def draw_all_circles(self):
         for circle_position in self.circles_position:
             self.draw_circle_color(circle_position[0], circle_position[1], 5, "red")
-        self.draw_circle_color(self.dimensions[0]/2, self.dimensions[1]/2, self.dimensions[0]/4)
+        self.draw_circle_color(self.canvas_dimensions[0]/2,
+                               self.canvas_dimensions[1]/2,
+                               self.canvas_dimensions[0]/4)
 
     def generate_lattice(self):
         # LATTICE GENERATION
@@ -409,10 +475,21 @@ class PlotGUI(tk.Tk):
         for idc in range(2 * self.lattice_order + 2):
             Couplers += [Pbb.Coupler([1.5, 1.6], (self.K, self.K))]
         for idb in range(self.lattice_order + 1):
-            Balance_traits += [Pbb.Balanced_propagation(self.neff, self.ng, self.wavelength_neff, self.losses_propagation_parameter, 0)]
+            Balance_traits += [Pbb.Balanced_propagation(self.neff,
+                                                        self.ng,
+                                                        self.wavelength_neff,
+                                                        self.losses_propagation_parameter, 0)]
         for idu in range(self.lattice_order):
-            Unbalance_traits += [Pbb.Unbalanced_propagation(self.neff, self.ng, self.wavelength_neff, self.losses_propagation_parameter, 0, self.dL)]
-        return Pbb.Chip_structure([Couplers, Balance_traits, Unbalance_traits], ['C', 'B', 'C', 'U'] * self.lattice_order + ['C', 'B', 'C'], self.losses_coupling)
+            Unbalance_traits += [Pbb.Unbalanced_propagation(self.neff,
+                                                            self.ng,
+                                                            self.wavelength_neff,
+                                                            self.losses_propagation_parameter,
+                                                            0, self.dL)]
+        return Pbb.Chip_structure([Couplers,
+                                   Balance_traits,
+                                   Unbalance_traits],
+                                  ['C', 'B', 'C', 'U'] * self.lattice_order + ['C', 'B', 'C'],
+                                  self.losses_coupling)
 
     def update_k(self, action, value, end_action=None):
         if end_action is None:
@@ -421,6 +498,32 @@ class PlotGUI(tk.Tk):
             self.scrollbar_text.config(text = f"K Value {np.round(self.K, 2)}")
             self.lattice = self.generate_lattice()
             self.update_plot()
+
+    def update_pars(self, event):
+        self.lattice_order = int(self.lattice_order_input.get())
+        self.n_circles = self.lattice_order
+        self.reset_circles()
+        self.draw_all_circles()
+
+        self.neff = float(self.neff_input.get())
+        self.ng = float(self.ng_input.get())
+        self.dL = float(self.dL_input.get())
+        self.losses_coupling = float(self.losses_coupling_input.get())
+
+        self.heater_order = ['B', 'U'] * self.lattice_order + ['B']
+        self.lattice = self.generate_lattice()
+        self.update_plot()
+
+    def reset_circles(self):
+        self.canvas.delete("all")
+        self.circles_position = [((0.45 * np.cos(t) + 1) * self.canvas_dimensions[0] / 2,
+                                  (0.45 * np.sin(v) + 1) * self.canvas_dimensions[1] / 2)
+                                 for (t, v) in zip(np.linspace(0, np.pi * 2,
+                                                               self.n_circles,endpoint=False),
+                                                   np.linspace(0, np.pi * 2,
+                                                               self.n_circles, endpoint=False))]
+        self.draw_all_circles()
+        self.update_plot()
 
     def generate_output_power(self, target_field):
         # MADSEN ALGORITHM B PART -> find the correct target B
@@ -440,6 +543,7 @@ class PlotGUI(tk.Tk):
         self.lattice.set_heaters(phases-Neff_shift_phis, self.heater_order)
         S = self.lattice.calculate_S_matrix(self.wavelengths)
         output_power = Pbb.calculate_outputs(self.input_field, S, dB=False)[:, 0]
+
         return output_power
 
 GUI = PlotGUI()
