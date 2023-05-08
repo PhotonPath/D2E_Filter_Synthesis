@@ -100,6 +100,9 @@ class Balanced_propagation:
     def set_heater(self, dphi):
         self.dphi_heater = dphi
 
+    def get_heater(self):
+        return self.dphi_heater
+
     def calculate_losses(self, wl):
         self.alpha = (self.losses_parameter['A'] - self.losses_parameter['D']) / 2 * (
                     (1 / (1 + self.losses_parameter['B'] * (wl - self.losses_parameter['wl1']) ** 2))
@@ -387,6 +390,27 @@ class Chip_structure:
             elif ido == 'R':
                 self.rings[R_number].set_heater(dphis[idx])
                 R_number += 1
+
+    def get_heaters(self):
+        dphis = []
+        elements = []
+        B_number = 0
+        U_number = 0
+        R_number = 0
+        for ido in self.sorting_elements:
+            if ido == 'B':
+                dphis += [self.bal_traits[B_number].get_heater()]
+                B_number += 1
+                elements += ido
+            elif ido == 'U':
+                dphis += [self.unbal_traits[U_number].get_heater()]
+                U_number += 1
+                elements += ido
+            elif ido == 'R':
+                dphis += [self.rings[R_number].get_heater()]
+                R_number += 1
+                elements += ido
+        return elements, dphis
 
     def set_heaters_by_voltage(self, voltage_square, heaters_order):
         dphis = voltage_square * self.conversion + self.phase_0

@@ -306,7 +306,7 @@ wavelengths = c/frequencies
 propagation_losses = -((lpp['A'] - lpp['D']) / 2 * (1 / (1 + lpp['B']*(wavelengths - lpp['wl1'])**2) + np.exp(-(wavelengths - lpp['wl2'])**2/lpp['C'])) + lpp['D']) * balance_trait * (2 * Lattice_Order + 1)
 # LINEAR TARGET POWER (mW) AND FIELD USING HILBERT OPERATOR. MUST BE THE WANTED TARGET, WITHOUT COUPLING LOSSES!
 # Target_dB = -20 * (normalized_frequencies - 0.5) ** 2
-Target_dB = ( -10+normalized_frequencies*10)
+Target_dB = (-10+normalized_frequencies*10)
 # Target_dB = ( -2+normalized_frequencies*0)
 # Target_dB = np.abs(np.sin(5.2 * normalized_frequencies * np.pi)) * 0.8 + 0.1
 

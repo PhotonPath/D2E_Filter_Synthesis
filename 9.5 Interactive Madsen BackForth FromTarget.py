@@ -416,8 +416,59 @@ class PlotGUI(tk.Tk):
         self.reset_button = tk.Button(param_frame, text="Reset Positions", command=self.reset_circles)
         self.reset_button.grid(row=10, column=0, padx=5, pady=5)
 
+        # Frame for output parameters
+        self.output_frame = tk.Frame(self.secondary_window)
+        self.output_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+
+        # Labels for output parameters
+        # Heater values
+        self.heater_values = []
+        elements, heaters_values = self.lattice.get_heaters()
+        # Add one label for each heater value in the heaters_values vector
+        for idx, heater_value in enumerate(heaters_values):
+            # format the heater value to have 3 digits
+            self.heater_values.append(
+                tk.Label(self.output_frame, text="{}: {:.3f}".format(elements[idx], heater_value), width=15, anchor="w",
+                         justify="left"))
+            self.heater_values[-1].grid(row=idx + 1, column=0, padx=5, pady=5)
+
+        # Plot heater values as IntensityBars below the plot
+        self.bars = IntensityBars(self.secondary_window, width=400, height=100, num_bars=self.lattice_order*2+1)
+        self.bars.grid(row=1, column=0, padx=5, pady=5)
+        self.bars.intensities = heaters_values
+        self.bars.add_grid()
+
+        # add label with power consumption estimate
+        # calculate power consumption
+        # heaters values are expressed in phase, so we need to convert them to power
+
+        # TODO: Design algorithm is giving back strange values. Phases are not around 0 and 2pi. Check why.
+        single_heater_power = 0.5 # W
+        total_power = single_heater_power * ((np.array(heaters_values) % (2 * np.pi)) / 2 / np.pi).sum()
+        self.power_consumption_label = tk.Label(self.secondary_window,
+                                                text="Power consumption: {:.3f} W".format(total_power),
+                                                width=50, anchor="w",
+                                                justify="left")
+        self.power_consumption_label.grid(row=2, column=0, padx=5, pady=5)
+
         # Plot
         self.update_plot()
+
+    def update_heater_values_text(self):
+        elements, heaters_values = self.lattice.get_heaters()
+        # Delete the previous labels
+        self.heater_values = []
+        # Add one label for each heater value in the heaters_values vector
+        for idx, heater_value in enumerate(heaters_values):
+            # format the heater value to have 3 digits
+            self.heater_values.append(
+                tk.Label(self.output_frame, text="{}: {:.3f}".format(elements[idx], heater_value), width=15, anchor="w",
+                         justify="left"))
+            self.heater_values[-1].grid(row=idx + 1, column=0, padx=5, pady=5)
+        single_heater_power = 0.5  # W for 2pi phase shift
+        total_power = single_heater_power * ((np.array(heaters_values) % (2 * np.pi)) / 2 / np.pi).sum()
+        self.power_consumption_label.config(text="Power consumption: {:.3f} W".format(total_power))
+        self.bars.intensities = heaters_values
 
     def update_selected_circle_status(self, event):
         if "scrollbar" not in str(event.widget):
@@ -446,6 +497,7 @@ class PlotGUI(tk.Tk):
         self.fig_subplot.grid()
         self.fig_subplot.legend()
         self.canvas_plot.draw()
+        self.update_heater_values_text()
 
     def move_circle(self, event):
         if self.is_circle_selected:
@@ -545,6 +597,74 @@ class PlotGUI(tk.Tk):
         output_power = Pbb.calculate_outputs(self.input_field, S, dB=False)[:, 0]
 
         return output_power
+
+
+class IntensityBars(tk.Canvas):
+    def __init__(self, parent, width, height, num_bars):
+        super().__init__(parent, width=width, height=height, bg='white')
+        self.spacing = 10
+        self.num_bars = num_bars
+        self.bar_width = width / num_bars - self.spacing
+        self._intensities = np.ones(num_bars) * 0.9 * height # 0.95 to leave some space at the top
+        self._norm_intensities = np.ones(num_bars)
+        self._bars = []
+
+        self.bar_padx = 10
+        self.bar_pady = 0
+
+        # create the bars
+        for i in range(num_bars):
+            yi = float(self._intensities[i])
+            x0 = i * self.bar_width + self.spacing*i + self.bar_padx
+            x1 = (i + 1) * self.bar_width + self.spacing*i
+            self._bars.append(self.create_rectangle(x0, self.bar_pady, x1, yi, fill='cyan'))
+
+    @property
+    def intensities(self):
+        return self._intensities
+
+    @intensities.setter
+    def intensities(self, intensities):
+        assert len(intensities) == self.num_bars
+        # normalize intensities to the canvas height (minus some padding)
+        # intensities must be the remainder of the heater values to 2pi
+        intensities = np.array(intensities)
+        intensities = intensities % (2 * np.pi)  # remainder of 2pi
+        # normalize to the size of the canvas
+        intensities = np.abs(intensities / (2 * np.pi) * (self.winfo_height()))
+
+        self._intensities = intensities
+        self.update_bars()
+
+    def update_bars(self):
+        for i, bar in enumerate(self._bars):
+            yi = float(self._intensities[i])
+            x0 = i * self.bar_width + self.spacing * i + self.bar_padx
+            x1 = (i + 1) * self.bar_width + self.spacing * i + self.bar_padx
+            y0 = self.winfo_height() - yi  # update y0 to be the bottom of the bar
+            y1 = self.winfo_height() - self.bar_pady  # update y1 to be the top of the bar
+            self.coords(bar, x0, y0, x1, y1)
+
+    def add_grid(self):
+        # create vertical lines
+        line_spacing = 10
+        # create horizontal lines
+        num_horizontal_lines = int(self['height']) // line_spacing
+        for i in range(num_horizontal_lines + 1):
+            y = i * line_spacing
+            self.create_line(0, y, self['width'], y, fill='gray', dash=(1, 3))
+
+        # add horizontal line at the middle
+        y = int(self['height'])/2
+        self.create_line(0, y, self['width'], y, fill='black')
+
+        num_vertical_lines = int(self['width']) // line_spacing
+        # create vertical lines
+        for i in range(num_vertical_lines + 1):
+            x = i * line_spacing
+            # create solid lines
+            self.create_line(x, 0, x, self['height'], fill='gray', dash=(1, 3))
+
 
 GUI = PlotGUI()
 GUI.mainloop()
