@@ -1,70 +1,87 @@
 """
-Code Data 2023/04/11
+Code Improved 2024/01/14
 Author Mattia
 """
 
 import Photonic_building_block as Pbb
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.constants as const
 
-# Input data
-c = 300
+# INPUTS
+c = const.c
 FSR = 5 # THz
-n_points = 100
+n_points = 1001
 frequencies = np.linspace(190, 190+FSR, n_points)
 wavelengths = c/frequencies
-coupler_value = 0.5
-neff = 1.5
-ng = 1.5
-losses_parameter = {
-    'A': 0,
-    'B': 0,
-    'C': 0,
-    'D': 0,
-    'wl1': 1.5,
-    'wl2': 1.6
-}
-dL = c/FSR/ng
+input_field = [np.ones(n_points), np.zeros(n_points)]
 
-# Lattice block element
-Lattice_Order = 5
-x = np.linspace(0, Lattice_Order, Lattice_Order+1)
-Coupler = [Pbb.Coupler([1.5, 1.6], [coupler_value, coupler_value])] * (Lattice_Order * 2 + 2)
-Balance_trait = []
-Unbalance_trait = []
-for i in range(Lattice_Order+1):
-    Balance_trait += [Pbb.Balanced_propagation(neff, ng, 1.55, losses_parameter, 0)]
-for i in range(Lattice_Order):
-    Unbalance_trait += [Pbb.Unbalanced_propagation(neff, ng, 1.55, losses_parameter, 0, dL)]
-coupling_losses = 0
+waveguide_args_balance = {
+    'neff0': 1.5,
+    'ng': 1.5,
+    'wavelength0': 1.55,    # um
+    'dL': c/FSR/1.5,
+    'wavelengths': wavelengths
+}
+waveguide_args_unbalance = waveguide_args_balance.copy()
+waveguide_args_unbalance['dL'] = 37
+
+# Coupler arguments
+coupler_args = {
+    'k0': np.pi/4,
+    'k1': 0,
+    'k2': 0,
+    'wavelength0': 1.55,
+    'wavelengths': wavelengths}
+
+coupling_loss_args = {
+    'coupling_losses': 0,
+    'wavelengths': wavelengths}
+
+filter_order = 5
+
+# BUILDING BLOCKS
+structures = {0: Pbb.WaveguideFacet(**coupling_loss_args)}
+
+for idx in range(filter_order):
+    structures[4*idx + 1] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+    structures[4*idx + 3] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_unbalance)
+structures[4*filter_order + 1] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+structures[4*filter_order + 3] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 4] = Pbb.WaveguideFacet(**coupling_loss_args)
 
 # Output calculation
-Lattice = Pbb.Chip_structure([Coupler, Balance_trait, Unbalance_trait], ['C', 'B', 'C', 'U'] * Lattice_Order + ['C', 'B', 'C'], coupling_losses)
-heater_order = ['B', 'U'] * Lattice_Order + ['B']
-heaters = np.zeros(Lattice_Order * 2 + 1)
-heaters[0] = np.pi/2
-heaters[2] = np.pi
-heaters[4] = np.pi/2
-Lattice.set_heaters(heaters, heater_order)
-S = Lattice.calculate_S_matrix(wavelengths)
-input_field = np.array([[1, 0], [0,  0]])
-output_power = Pbb.calculate_outputs(input_field, S, dB=False)[:, 0]
-output_field = Pbb.calculate_field_outputs(input_field, S)[:, 0]
-plt.plot(np.angle(output_field))
-plt.plot(np.abs(output_field)**2)
-plt.show()
+heaters = {2: np.pi/2,
+           4: np.pi,
+           6: np.pi/2}
+
+# LATTICE
+Lattice = Pbb.ChipStructure(structures)
+Lattice.calculate_internal_transfer_function()
+Lattice.calculate_transfer_function()
+Lattice.set_heaters(heaters)
+output_field = Lattice.calculate_output(input_field)
+output_power = np.abs(output_field[0])**2
+
+# PLOT
+plt.figure(0)
+plt.plot(np.angle(output_field[0]))
+plt.plot(np.abs(output_field[0])**2)
 
 # Plotting Power Output
-# plt.figure(1)
-# plt.plot(frequencies, output_power)
-# plt.grid()
-# plt.show()
+plt.figure(1)
+plt.plot(frequencies, output_power)
+plt.grid()
 
 # Plotting Power Output Fourier Transform
-# plt.figure(2)
-# output_power_fft = np.fft.fft(output_power) / n_points
-# plt.scatter(x, output_power_fft[0:Lattice_Order+1])
-# plt.grid()
-# plt.show()
+plt.figure(2)
+x = np.linspace(0, filter_order, filter_order+1)
+output_power_fft = np.fft.fft(output_power) / n_points
+plt.scatter(x, output_power_fft[0:filter_order+1])
+plt.grid()
+plt.show()
 
 
