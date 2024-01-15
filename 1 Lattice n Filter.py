@@ -29,8 +29,6 @@ waveguide_args_unbalance['dL'] = 37
 # Coupler arguments
 coupler_args = {
     'k0': np.pi/4,
-    'k1': 0,
-    'k2': 0,
     'wavelength0': 1.55,
     'wavelengths': wavelengths}
 

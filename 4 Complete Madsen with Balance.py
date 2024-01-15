@@ -211,8 +211,6 @@ waveguide_args_unbalance['dL'] = c/FSR/waveguide_args_balance['ng']
 coupler_value = np.pi/4
 coupler_args = {
     'k0': coupler_value,
-    'k1': 0,
-    'k2': 0,
     'wavelength0': 1.55,
     'wavelengths': wavelengths}
 

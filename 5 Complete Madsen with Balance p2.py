@@ -1,8 +1,9 @@
 """
-Code Data 2023/04/14
+Code D2EOptimization 2023/04/14
 Author Mattia
 """
 import Photonic_building_block as Pbb
+import scipy.constants as const
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -75,20 +76,16 @@ def calculate_prev_layer_balance(lattice_order, a, b, k, n):
     lattice_n = int((n - 1) / 2)
 
     if n % 2 == 1: # Balance
-        print("B")
         numerator = b * np.sqrt(k) * np.sqrt(k) + a * np.sqrt(1 - k) * np.sqrt(k)
         denominator = b * np.sqrt(1 - k) * np.sqrt(1 - k) - a * np.sqrt(k) * np.sqrt(1 - k)
         r = numerator / denominator
         phi = -np.angle(r)
-        print(phi)
     else:          # Unbalance
-        print("U")
         a_tilda = np.sqrt(1 - k) * a + np.sqrt(k) * b
         phi = -np.angle(a_tilda[lattice_n]) + np.angle(prev_b[lattice_n - 1]) + np.arctan(0.2 / (k - 0.5) / 4)
         if k > 0.5:
             phi -= np.pi
         # phi = -np.angle(a_tilda[lattice_n]) + np.angle(prev_b[lattice_n - 1]) - np.arctan(4 / PHI * (k - 0.5)) - np.pi/2
-        print(phi)
 
     phi = PHI
 
@@ -120,7 +117,7 @@ def reverse_transfer_function_balance(a_n, b_n, k):
     b[-1] = b_n
     for i in range(stadium_order):
         if i != stadium_order - 1:
-            phis[-i - 1], a[-i - 2], b[-i - 2] = calculate_prev_layer_balance(Lattice_Order, a[-i - 1], b[-i - 1], k, -i-1)
+            phis[-i - 1], a[-i - 2], b[-i - 2] = calculate_prev_layer_balance(filter_order, a[-i - 1], b[-i - 1], k, -i-1)
     return phis, a, b
 
 def find_valid_b_balance(lattice_order, a, gamma=1, to_plot=False):
@@ -202,104 +199,120 @@ def plot_roots(a, color="red", width=2, unit_circle=False):
     plt.grid()
 
 
-# Input data
-Lattice_Order = 5
-n_points = 500
-c = 299.792458 # um * THz
-dL = 30        # um
-wavelength_neff = 1.55 # um
-neff = 1.46    # @ wavelength_neff
-ng = 1.52      # @ wavelength_neff
-FSR = c/dL/ng # THz
+# INPUTS
+c = const.c/1000000
+FSR = 5 # THz
+n_points = 1001
 frequencies = np.linspace(190, 190+FSR, n_points)
 wavelengths = c/frequencies
-coupler_value = 0.52
-losses_parameter = {
-    'A': 0,
-    'B': 0,
-    'C': 0,
-    'D': 0,
-    'wl1': 1.5,
-    'wl2': 1.6
-} # No losses
-input_field = np.array([[1, 0], [0,  0]])
-#Phis = np.random.uniform(0, np.pi/2, Lattice_Order * 2 + 1)
-PHI = 0.5
-Phis = np.ones(Lattice_Order * 2 + 1) * PHI
-Phis[8] = 0.2
-# As, Bs calculation
-As, Bs = calculate_transfer_function_balance(Lattice_Order, coupler_value, Phis)
+input_field = [np.ones(n_points), np.zeros(n_points)]
 
-"""
+neff = 1.4
+ng = 1.5
+wavelength0 = 1.55
+dL = c/FSR/ng
+waveguide_args_balance = {
+    'neff0': neff,
+    'ng': ng,
+    'wavelength0': wavelength0,    # um
+    'wavelengths': wavelengths
+}
+waveguide_args_unbalance = waveguide_args_balance.copy()
+waveguide_args_unbalance['dL'] = dL
+
+# Coupler arguments
+coupler_value = np.pi/4
+coupler_args = {
+    'k0': coupler_value,
+    'wavelength0': 1.55,
+    'wavelengths': wavelengths}
+
+coupling_loss_args = {
+    'coupling_losses': 0,
+    'wavelengths': wavelengths}
+
+filter_order = 5
+
+# BUILDING BLOCKS
+structures = {0: Pbb.WaveguideFacet(**coupling_loss_args)}
+
+for idx in range(filter_order):
+    structures[4*idx + 1] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+    structures[4*idx + 3] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_unbalance)
+structures[4*filter_order + 1] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+structures[4*filter_order + 3] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 4] = Pbb.WaveguideFacet(**coupling_loss_args)
+
+PHI = 0.5
+Phis = np.ones(filter_order * 2 + 1) * PHI
+
+# As, Bs calculation
+As, Bs = calculate_transfer_function_balance(filter_order, np.sin(coupler_value)**2, Phis)
+
 # Entering from top (Xin = 1, Yin = 0)
 bar = np.zeros(n_points, dtype=np.complex128)
 cross = np.zeros(n_points, dtype=np.complex128)
 x = np.linspace(0, 1, n_points)
-for fourier_coefficient in range(Lattice_Order+1):
+for fourier_coefficient in range(filter_order+1):
     bar = bar + np.exp(fourier_coefficient * 2j * np.pi * x) * As[-1][fourier_coefficient]
     cross = cross - np.exp(fourier_coefficient * 2j * np.pi * x) * Bs[-1][fourier_coefficient] * np.exp(1j)
 plt.figure(10)
 plt.plot(frequencies, np.abs(bar)**2, label="MADSEN Lattice Bar")
-# plt.plot(x, np.abs(cross)**2, label="MADSEN Lattice Cross")
-"""
 
-# # LATTICE GENERATION
-Couplers = []
-Balance_traits = []
-Unbalance_traits = []
-for idc in range(2*Lattice_Order+2):
-    Couplers += [Pbb.Coupler([1.5, 1.6], (coupler_value, coupler_value))]
-for idb in range(Lattice_Order+1):
-    Balance_traits += [Pbb.Balanced_propagation(neff, ng, wavelength_neff, losses_parameter, 0)]
-for idu in range(Lattice_Order):
-    Unbalance_traits += [Pbb.Unbalanced_propagation(neff, ng, wavelength_neff, losses_parameter, 0, dL)]
-coupling_losses = 0
-Lattice = Pbb.Chip_structure([Couplers, Balance_traits, Unbalance_traits], ['C', 'B', 'C', 'U'] * Lattice_Order + ['C', 'B', 'C'], coupling_losses)
-heater_order = ['B', 'U'] * Lattice_Order + ['B']
-
+# LATTICE CREATION
+Lattice = Pbb.ChipStructure(structures)
+Lattice.calculate_internal_transfer_function()
 
 # WORKING AREA ################
-phi11, As11, Bs11 = calculate_prev_layer_balance(Lattice_Order, As[-1], Bs[-1], coupler_value, -1)
-phi10, As10, Bs10 = calculate_prev_layer_balance(Lattice_Order, As11, Bs11, coupler_value, -2)
-phi9, As9, Bs9 = calculate_prev_layer_balance(Lattice_Order, As10, Bs10, coupler_value, -3)
-phi8, As8, Bs8 = calculate_prev_layer_balance(Lattice_Order, As9, Bs9, coupler_value, -4)
-phi7, As7, Bs7 = calculate_prev_layer_balance(Lattice_Order, As8, Bs8, coupler_value, -5)
-
-bar_original = np.zeros(n_points, dtype=np.complex128)
-bar_reconstructed = np.zeros(n_points, dtype=np.complex128)
-x = np.linspace(0, 1, n_points)
-for fourier_coefficient in range(Lattice_Order+1):
-    bar_original = bar_original + np.exp(fourier_coefficient * 2j * np.pi * x) * As[-3][fourier_coefficient]
-    bar_reconstructed = bar_reconstructed + np.exp(fourier_coefficient * 2j * np.pi * x) * As10[fourier_coefficient]
+# phi11, As11, Bs11 = calculate_prev_layer_balance(filter_order, As[-1], Bs[-1], np.sin(coupler_value)**2, -1)
+# phi10, As10, Bs10 = calculate_prev_layer_balance(filter_order, As11, Bs11, np.sin(coupler_value)**2, -2)
+# phi9, As9, Bs9 = calculate_prev_layer_balance(filter_order, As10, Bs10, np.sin(coupler_value)**2, -3)
+# phi8, As8, Bs8 = calculate_prev_layer_balance(filter_order, As9, Bs9, np.sin(coupler_value)**2, -4)
+# phi7, As7, Bs7 = calculate_prev_layer_balance(filter_order, As8, Bs8, np.sin(coupler_value)**2, -5)
+#
+# bar_original = np.zeros(n_points, dtype=np.complex128)
+# bar_reconstructed = np.zeros(n_points, dtype=np.complex128)
+# x = np.linspace(0, 1, n_points)
+# for fourier_coefficient in range(filter_order+1):
+#     bar_original = bar_original + np.exp(fourier_coefficient * 2j * np.pi * x) * As[-3][fourier_coefficient]
+#     bar_reconstructed = bar_reconstructed + np.exp(fourier_coefficient * 2j * np.pi * x) * As10[fourier_coefficient]
 # plt.figure(10)
 # plt.plot(frequencies, bar_original, label="Original")
 # plt.plot(frequencies, bar_reconstructed, label="Reconstructed")
 
 # FINISH WORKING AREA #########
-"""
+
+
 # MADSEN ALGORITHM
 Target_As = As[-1]
-Target_Bs = find_valid_b_balance(Lattice_Order, Target_As, to_plot=False)
+Target_Bs = find_valid_b_balance(filter_order, Target_As, to_plot=False)
 
-Phis_estimate, As_estimate, Bs_estimate = reverse_transfer_function_balance(Target_As, Target_Bs, coupler_value)
+Phis_estimate, As_estimate, Bs_estimate = reverse_transfer_function_balance(Target_As, Target_Bs, np.sin(coupler_value)**2)
 
 # NEFF COMPENSATION
 Neff_shift_phis = np.zeros(len(Phis_estimate))
-Neff_shift_phis[1::2] = np.ones(Lattice_Order) * 2 * np.pi * ((neff - ng) * dL / wavelength_neff + frequencies[0] / FSR)
+Neff_shift_phis[1::2] = np.ones(filter_order) * 2 * np.pi * ((neff - ng) * dL / wavelength0 + frequencies[0] / FSR)
 # The unbalance shifts must compensate the selected band (frequencies[0] / FSR) because the filter consider as regular bands the
 # multiples of the FSR, while we want the filter to be set in a given region of the spectrum
 # The unbalance must also compensate the difference between neff and ng (neff - ng) * dL / wavelength_neff.
 
 # OUTPUT CALCULATION
-Lattice.set_heaters(-Phis_estimate-Neff_shift_phis, heater_order)
-S = Lattice.calculate_S_matrix(wavelengths)
-output_power = Pbb.calculate_outputs(input_field, S, dB=False)
+
+phis_estimate_dict = {}
+for idp, phi_estimate in enumerate(Phis_estimate):
+    phis_estimate_dict[idp * 2 + 2] = -phi_estimate-Neff_shift_phis[idp]
+
+Lattice.set_heaters(phis_estimate_dict)
+Lattice.calculate_transfer_function()
+output_field = Lattice.calculate_output(input_field)
+output_power = np.abs(output_field[0])**2
 plt.figure(10)
-plt.plot(frequencies, output_power[:, 0], label="PBB Output Bar")
-# plt.plot(x, output_power[:, 1], label="PBB Output Cross")
+plt.plot(frequencies, output_power, label="PBB Output Bar")
 plt.xlabel("Frequencies")
 plt.ylabel("Filter Linear Transfer Function")
 plt.grid()
 plt.legend()
-
-"""
+plt.show()
