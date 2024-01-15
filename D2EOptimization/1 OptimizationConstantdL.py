@@ -10,7 +10,6 @@ import scipy.optimize as opt
 import numpy as np
 import yaml
 
-
 def calculate_output_bar(phases, lattice):
     """
     Calculate the output of the lattice in input for all the wavelengths of interest, given the correspondent heater phases.
@@ -30,7 +29,6 @@ def calculate_output_bar(phases, lattice):
     output_field = lattice.calculate_output(input_field)
     output_power_bar = 20*np.log10(np.abs(output_field[0]))
     return output_power_bar
-
 
 def calculate_output_error(phases, lattice, target):
     """
@@ -62,7 +60,7 @@ precision_digits = 3
 
 # Saving information
 file_name_save = f"Band {Band} - Order {Lattice_Order} - High Range ({dLs[0]} - {dLs[-1]})"
-file_path_save = "Data/"
+file_path_save = "Data C-Band/"
 
 # Load data
 c = const.c / 1000000
@@ -173,7 +171,7 @@ fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 8), sharex=True)
 plt.xlabel("dL [um]", fontsize=12)
 ax1.set_title(f"Band {Band} - Order {Lattice_Order}", fontsize=23)
 
-# Plot Data
+# Plot Data C-Band
 for idL, dL in enumerate(dLs):
     code_max = f"dL{dL}"
     ax2.scatter(dL, float(max_ripples_sum[code_max]), color=colors[0])
@@ -192,13 +190,13 @@ for idx in range(2):
         ax2.set_ylabel("Max Ripple Sum [dB]", fontsize=12)
         ax2.grid()
 
-# Plot Data: Saving
-# plt.savefig(file_path_save + file_name_save + ".png")
-# plt.show()
-#
-# # Save data
-# save_data = {'max_ripples':max_ripples,
-#              'max_ripples_sum': max_ripples_sum}
-#
-# with open(file_path_save + file_name_save + ".yaml", 'w') as file:
-#     yaml.dump(save_data, file)
+# Plot Data C-Band: Saving
+plt.savefig(file_path_save + file_name_save + ".png")
+plt.show()
+
+# Save data
+save_data = {'max_ripples':max_ripples,
+             'max_ripples_sum': max_ripples_sum}
+
+with open(file_path_save + file_name_save + ".yaml", 'w') as file:
+    yaml.dump(save_data, file)
