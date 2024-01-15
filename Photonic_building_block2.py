@@ -94,7 +94,6 @@ class Balanced_propagation:
         # TRANSFER FUNCTION
         self.S = []
 
-
     def calculate_dn(self):
         # Derivative of effective refractive index as a function of wavelength, in 1 / um
         self.dn = -(self.ng - self.neff) / self.wl0
@@ -116,6 +115,7 @@ class Balanced_propagation:
         self.beta = 2 * np.pi * n / wl  # Wave vector
 
     def calculate_S_matrix(self, wl):
+        self.preliminary_losses(wl)
         self.S = np.array([[np.exp(-1j * (self.beta * self.L * 1e4 + self.dphi_heater))
                             * np.exp(-self.alpha_neper * self.L), np.zeros(len(wl))],
                            [np.zeros(len(wl)), np.exp(-1j * (self.beta * (self.L * 1e4)))
@@ -147,6 +147,7 @@ class Unbalanced_propagation(Balanced_propagation):
         self.dL = dl
 
     def calculate_S_matrix(self, wl):
+        self.preliminary_losses(wl)
         self.S = np.array(
             [[np.exp(-1j * (self.beta * (self.L * 1e4 + self.dL) + self.dphi_heater))
               * np.exp(-self.alpha_neper * (self.L + self.dL / 1e4)), np.zeros(len(wl))],

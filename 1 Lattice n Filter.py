@@ -5,8 +5,8 @@ Author Mattia
 
 import Photonic_building_block as Pbb
 import matplotlib.pyplot as plt
-import numpy as np
 import scipy.constants as const
+import numpy as np
 
 # INPUTS
 c = const.c

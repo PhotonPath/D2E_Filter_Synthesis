@@ -1,8 +1,9 @@
 """
-Code Data 2023/04/14
+Code D2EOptimization 2023/04/14
 Author Mattia
 """
 import Photonic_building_block as Pbb
+import scipy.constants as const
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -107,7 +108,7 @@ def reverse_transfer_function_balance(a_n, b_n, k):
     b[-1] = b_n
     for i in range(stadium_order):
         if i != stadium_order - 1:
-            phis[-i - 1], a[-i - 2], b[-i - 2] = calculate_prev_layer_balance(Lattice_Order, a[-i - 1], b[-i - 1], k, -i-1)
+            phis[-i - 1], a[-i - 2], b[-i - 2] = calculate_prev_layer_balance(filter_order, a[-i - 1], b[-i - 1], k, -i-1)
     return phis, a, b
 
 def find_valid_b_balance(lattice_order, a, gamma=1, to_plot=False):
@@ -189,56 +190,68 @@ def plot_roots(a, color="red", width=2, unit_circle=False):
     plt.grid()
 
 
-# Input data
-Lattice_Order = 5
-c = 299.792458 #um*THz
+# INPUTS
+c = const.c/1000000
 FSR = 5 # THz
-n_points = 500
+n_points = 1001
 frequencies = np.linspace(190, 190+FSR, n_points)
 wavelengths = c/frequencies
-coupler_value = 0.5
-neff = 1.5
-ng = 1.5
-losses_parameter = {
-    'A': 0,
-    'B': 0,
-    'C': 0,
-    'D': 0,
-    'wl1': 1.5,
-    'wl2': 1.6
-} # No losses
-dL = c/FSR/ng
-input_field = np.array([[1, 0], [0,  0]])
-Phis = np.random.uniform(0, np.pi/2, Lattice_Order * 2 + 1)
+input_field = [np.ones(n_points), np.zeros(n_points)]
+
+waveguide_args_balance = {
+    'neff0': 1.5,
+    'ng': 1.5,
+    'wavelength0': 1.55,    # um
+    'wavelengths': wavelengths
+}
+waveguide_args_unbalance = waveguide_args_balance.copy()
+waveguide_args_unbalance['dL'] = c/FSR/waveguide_args_balance['ng']
+
+# Coupler arguments
+coupler_value = np.pi/4
+coupler_args = {
+    'k0': coupler_value,
+    'k1': 0,
+    'k2': 0,
+    'wavelength0': 1.55,
+    'wavelengths': wavelengths}
+
+coupling_loss_args = {
+    'coupling_losses': 0,
+    'wavelengths': wavelengths}
+
+filter_order = 5
+
+# BUILDING BLOCKS
+structures = {0: Pbb.WaveguideFacet(**coupling_loss_args)}
+
+for idx in range(filter_order):
+    structures[4*idx + 1] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+    structures[4*idx + 3] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_unbalance)
+structures[4*filter_order + 1] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+structures[4*filter_order + 3] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 4] = Pbb.WaveguideFacet(**coupling_loss_args)
 
 # As, Bs calculation
-As, Bs = calculate_transfer_function_balance(Lattice_Order, coupler_value, Phis)
+Phis = np.random.uniform(0, np.pi/2, filter_order * 2 + 1)
+As, Bs = calculate_transfer_function_balance(filter_order, np.sin(coupler_value)**2, Phis)
 
 # Entering from top (Xin = 1, Yin = 0)
 bar = np.zeros(n_points, dtype=np.complex128)
 cross = np.zeros(n_points, dtype=np.complex128)
 x = np.linspace(0, 1, n_points)
-for fourier_coefficient in range(Lattice_Order+1):
+for fourier_coefficient in range(filter_order+1):
     bar = bar + np.exp(fourier_coefficient * 2j * np.pi * x) * As[-1][fourier_coefficient]
     cross = cross - np.exp(fourier_coefficient * 2j * np.pi * x) * Bs[-1][fourier_coefficient] * np.exp(1j)
 plt.figure(10)
 plt.plot(x, np.abs(bar)**2, label="MADSEN Lattice Bar")
 # plt.plot(x, np.abs(cross)**2, label="MADSEN Lattice Cross")
 
-# # LATTICE GENERATION
-Couplers = []
-Balance_traits = []
-Unbalance_traits = []
-k_coupler = 0.5
-for idc in range(2*Lattice_Order+2):
-    Couplers += [Pbb.Coupler([1.5, 1.6], (k_coupler, k_coupler))]
-for idb in range(Lattice_Order+1):
-    Balance_traits += [Pbb.Balanced_propagation(neff, ng, 1.55, losses_parameter, 0)]
-for idu in range(Lattice_Order):
-    Unbalance_traits += [Pbb.Unbalanced_propagation(neff, ng, 1.55, losses_parameter, 0, dL)]
-coupling_losses = 0
-Lattice = Pbb.Chip_structure([Couplers, Balance_traits, Unbalance_traits], ['C', 'B', 'C', 'U'] * Lattice_Order + ['C', 'B', 'C'], coupling_losses)
-heater_order = ['B', 'U'] * Lattice_Order + ['B']
+Lattice = Pbb.ChipStructure(structures)
+Lattice.calculate_internal_transfer_function()
 
 #################################################
 ################# B-1 KNOWN #####################
@@ -247,19 +260,25 @@ heater_order = ['B', 'U'] * Lattice_Order + ['B']
 # # MADSEN ALGORITHM
 # Target_As = As[-1]
 # Target_Bs = Bs[-1]
-# Phis_estimate, As_estimate, Bs_estimate = reverse_transfer_function_balance(Target_As, Target_Bs, coupler_value)
+# Phis_estimate, As_estimate, Bs_estimate = reverse_transfer_function_balance(Target_As, Target_Bs, np.sin(coupler_value)**2)
+#
+# phis_estimate_dict = {}
+# for idp, phi_estimate in enumerate(Phis_estimate):
+#     phis_estimate_dict[idp*2+2] = -phi_estimate
 #
 # # OUTPUT CALCULATION
-# Lattice.set_heaters(-Phis_estimate, heater_order)
-# S = Lattice.calculate_S_matrix(wavelengths)
-# output_power = Pbb.calculate_outputs(input_field, S, dB=False)
+# Lattice.set_heaters(phis_estimate_dict)
+# Lattice.calculate_transfer_function()
+# output_field = Lattice.calculate_output(input_field)
+# output_power = np.abs(output_field[0])**2
+#
 # plt.figure(10)
-# plt.plot(x, output_power[:, 0], label="PBB Output Bar")
-# # plt.plot(x, output_power[:, 1], label="PBB Output Cross")
+# plt.plot(x, output_power, label="PBB Output Bar")
 # plt.xlabel("2*pi*Frequencies/FSR")
 # plt.ylabel("Filter Linear Transfer Function")
-# plt.grid()
 # plt.legend()
+# plt.show()
+# plt.grid()
 
 #################################################
 ################ B-1 UNKNOWN ####################
@@ -267,22 +286,23 @@ heater_order = ['B', 'U'] * Lattice_Order + ['B']
 
 # MADSEN ALGORITHM
 Target_As = As[-1]
-Target_Bs = find_valid_b_balance(Lattice_Order, Target_As, to_plot=True)
+Target_Bs = find_valid_b_balance(filter_order, Target_As, to_plot=True)
 
-Phis_estimate, As_estimate, Bs_estimate = reverse_transfer_function_balance(Target_As, Target_Bs, coupler_value)
+Phis_estimate, As_estimate, Bs_estimate = reverse_transfer_function_balance(Target_As, Target_Bs, np.sin(coupler_value)**2)
+
+phis_estimate_dict = {}
+for idp, phi_estimate in enumerate(Phis_estimate):
+    phis_estimate_dict[idp*2+2] = -phi_estimate
 
 # OUTPUT CALCULATION
-Lattice.set_heaters(-Phis_estimate, heater_order)
-S = Lattice.calculate_S_matrix(wavelengths)
-output_power = Pbb.calculate_outputs(input_field, S, dB=False)
+Lattice.set_heaters(phis_estimate_dict)
+Lattice.calculate_transfer_function()
+output_field = Lattice.calculate_output(input_field)
+output_power = np.abs(output_field[0])**2
 plt.figure(10)
-plt.plot(x, output_power[:, 0], label="PBB Output Bar")
-# plt.plot(x, output_power[:, 1], label="PBB Output Cross")
+plt.plot(x, output_power, label="PBB Output Bar")
 plt.xlabel("2*pi*Frequencies/FSR")
 plt.ylabel("Filter Linear Transfer Function")
 plt.grid()
 plt.legend()
-
-
-
-
+plt.show()
