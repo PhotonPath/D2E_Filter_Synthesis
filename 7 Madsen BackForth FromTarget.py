@@ -1,12 +1,13 @@
 """
-Code Data 2023/04/20
+Code Improved 2024/01/15
 Author Mattia
 """
 
 import Photonic_building_block as Pbb
+import scipy.constants as const
 import matplotlib.pyplot as plt
-import numpy as np
 import scipy.signal as ss
+import numpy as np
 
 # Polynomials in this script are expressed as A(z) = A[0] + A[1]*z^-1 + A[2]*z^-2 ...
 
@@ -271,83 +272,105 @@ def z_cut(f, f_index):
     cut_field = field_from_z_coefficients(fft_f_coefficients, num_points)
     return cut_field, np.array(fft_f_coefficients)
 
-# Input data
-Lattice_Order = 5
-n_points = 500
-c = 299.792458 # um * THz
-dL = 30        # um
-wavelength_neff = 1.55 # um
-neff = 1.46    # @ wavelength_neff
-ng = 1.52      # @ wavelength_neff
+
+# INPUTS
+c = const.c/1000000
+wavelength0 = 1.55
+neff = 1.46
+ng = 1.52
+dL = 30
 FSR = c/dL/ng # THz
-K = 0.5       # No wavelength dependent coupler # TODO: USE K DIFFERENT FROM 0.5 AND FIND A SOLUTION FOR NOT FEASIBLE CBC BLOCK
-input_field = np.array([[1, 0], [0,  0]])
-losses_propagation_parameter = { # TODO: INSERT PROPAGATION LOSS
-    'A': 0,
-    'B': 0,
-    'C': 0,
-    'D': 0,
-    'wl1': 1.5,
-    'wl2': 1.6
-} # No Propagation losses
-losses_coupling = 0 #dB per facet  # TODO: INSERT COUPLING LOSS
+n_points = 500
 frequencies = np.linspace(192, 192+FSR, n_points, endpoint=False)
 normalized_frequencies = np.linspace(0, 1, n_points, endpoint=False)
 wavelengths = c/frequencies
+input_field = [np.ones(n_points), np.zeros(n_points)]
+
+waveguide_args_balance = {
+    'neff0': neff,
+    'ng': ng,
+    'wavelength0': wavelength0,    # um
+    'wavelengths': wavelengths
+}
+waveguide_args_unbalance = waveguide_args_balance.copy()
+waveguide_args_unbalance['dL'] = dL
+
+# Coupler arguments
+coupler_value = np.pi/4
+coupler_args = {
+    'k0': coupler_value,
+    'wavelength0': 1.55,
+    'wavelengths': wavelengths}
+
+coupling_loss_args = {
+    'coupling_losses': 0,
+    'wavelengths': wavelengths}
+
+filter_order = 5
+
+# BUILDING BLOCKS
+structures = {0: Pbb.WaveguideFacet(**coupling_loss_args)}
+
+for idx in range(filter_order):
+    structures[4*idx + 1] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+    structures[4*idx + 3] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_unbalance)
+structures[4*filter_order + 1] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+structures[4*filter_order + 3] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 4] = Pbb.WaveguideFacet(**coupling_loss_args)
+
 
 # LINEAR TARGET POWER (mW) AND FIELD USING HILBERT OPERATOR
 # Target = 3.8 * (normalized_frequencies - 0.5) ** 2 + 0.1
-Target = (0.7 - normalized_frequencies*0.6)
-# Target = np.abs(np.sin(5.2 * normalized_frequencies * np.pi)) * 0.8 + 0.1
+# Target = (0.7 - normalized_frequencies*0.6)
+Target = np.abs(np.sin(5.2 * normalized_frequencies * np.pi)) * 0.8 + 0.1
 
 Target_Field_amplitude = np.sqrt(Target)
 Target_Field_phase = -ss.hilbert(np.log(Target_Field_amplitude))
 Target_Field = Target_Field_amplitude * np.exp(1j*np.imag(Target_Field_phase))  # NEEDED FOR HAVING A FEASIBLE FIELD
 
 # LINEAR CUT TARGET FIELD (removed high order frequencies)
-Target_Field_cut, Target_As = z_cut(Target_Field, Lattice_Order)
+Target_Field_cut, Target_As = z_cut(Target_Field, filter_order)
 
 # MADSEN ALGORITHM B PART -> find the correct target B
-Target_As, Target_Bs = find_valid_b(Lattice_Order, Target_As, to_plot=False) # TODO: NEED TO CHECK IF POINTS ARE CLOSE TO THE UNITARY CIRCLE. IN THIS CASE THE ALGORITHM DOES NOT WORK SO WELL.
+Target_As, Target_Bs = find_valid_b(filter_order, Target_As, to_plot=False)
 
 # MADSEN ALGORITHM for a LATTICE formed by only couplers and unbalance (BACK)
 K_estimate, Phis_estimate, As_estimate, Bs_estimate = reverse_transfer_function(Target_As, Target_Bs)
 
 # BEYOND MADSEN -> Re-adjust the unbalance phases to compensate the coupler and CBC difference
-afs, bfs, phases = find_correction_phase(K, K_estimate, Phis_estimate)
+afs, bfs, phases = find_correction_phase(np.sin(coupler_value)**2, K_estimate, Phis_estimate)
 
 # NEFF COMPENSATION
 Neff_shift_phis = np.zeros(len(phases))
-Neff_shift_phis[1::2] = np.ones(Lattice_Order) * 2 * np.pi * ((neff - ng) * dL / wavelength_neff + frequencies[0] / FSR)
+Neff_shift_phis[1::2] = np.ones(filter_order) * 2 * np.pi * ((neff - ng) * dL / wavelength0 + frequencies[0] / FSR)
 # The unbalance shifts must compensate the selected band (frequencies[0] / FSR) because the filter consider as regular bands the
 # multiples of the FSR, while we want the filter to be set in a given region of the spectrum
 # The unbalance must also compensate the difference between neff and ng (neff - ng) * dL / wavelength_neff.
 
 # LATTICE GENERATION
-Couplers = []
-Balance_traits = []
-Unbalance_traits = []
-for idc in range(2*Lattice_Order+2):
-    Couplers += [Pbb.Coupler([1.5, 1.6], (K, K))]
-for idb in range(Lattice_Order+1):
-    Balance_traits += [Pbb.Balanced_propagation(neff, ng, wavelength_neff, losses_propagation_parameter, 0)]
-for idu in range(Lattice_Order):
-    Unbalance_traits += [Pbb.Unbalanced_propagation(neff, ng, wavelength_neff, losses_propagation_parameter, 0, dL)]
-Lattice = Pbb.Chip_structure([Couplers, Balance_traits, Unbalance_traits], ['C', 'B', 'C', 'U'] * Lattice_Order + ['C', 'B', 'C'], losses_coupling)
-heater_order = ['B', 'U'] * Lattice_Order + ['B']
+Lattice = Pbb.ChipStructure(structures)
+Lattice.calculate_internal_transfer_function()
 
 # LATTICE OUTPUT CALCULATION
-Lattice.set_heaters(phases-Neff_shift_phis, heater_order)
-S = Lattice.calculate_S_matrix(wavelengths)
-output_power = Pbb.calculate_outputs(input_field, S, dB=False)
+phis_estimate_dict = {}
+for idp, phi_estimate in enumerate(phases):
+    phis_estimate_dict[idp * 2 + 2] = phi_estimate-Neff_shift_phis[idp]
+
+Lattice.set_heaters(phis_estimate_dict)
+Lattice.calculate_transfer_function()
+output_field = Lattice.calculate_output(input_field)
 
 # PLOTTING
 plt.figure(2)
 plt.plot(frequencies, Target, label="Power Target")
 plt.plot(frequencies, np.abs(Target_Field_cut)**2, label="Power Target Cut")
 # plt.plot(frequencies, np.abs(field_from_z_coefficients(Target_As, n_points))**2)
-plt.plot(frequencies, output_power[:, 0], label="PBB Output Bar")
+plt.plot(frequencies, np.abs(output_field[0])**2, label="PBB Output Bar")
 plt.xlabel("Frequencies")
 plt.ylabel("Filter Linear Transfer Function")
-plt.grid()
 plt.legend()
+plt.grid()
+plt.show()
