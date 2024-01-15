@@ -1,5 +1,5 @@
 """
-Code Improved 2024/01/15
+Code D2EOptimization 2023/12/29
 Author Mattia
 """
 
@@ -19,7 +19,7 @@ def calculate_output_bar(phases, lattice):
     """
     heater_phases = {}
     for idp, phase in enumerate(phases):
-        heater_phases[2*idp+2] = phase
+        heater_phases[heater_codes[idp]] = phase
 
     # Apply heater phases to the lattice
     lattice.set_heaters(heater_phases)
@@ -51,7 +51,7 @@ def final_plot(vars1, vars2, var_name1, var_name2, gains, max_ripples_dict, max_
     color_start = np.array([1, 0, 0])
     color_end = np.array([0, 0, 1])
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 8), sharex=True)
-    ax1.set_title(f"Band {Band} - Order {Lattice_Order}", fontsize=23)
+    ax1.set_title(f"Band {Band}", fontsize=23)
 
     # Plot
     n = len(gains)
@@ -78,26 +78,20 @@ def final_plot(vars1, vars2, var_name1, var_name2, gains, max_ripples_dict, max_
             ax2.set_ylabel("Max Ripple Sum [dB]", fontsize=12)
             ax2.set_xlabel("dL0 um", fontsize=12)
             ax2.grid()
-
-    # Plot Data: Showing & Saving
-    plt.savefig(file_path_save + file_name_save + ".png")
     plt.show()
 
 # Band selector: Write C or L
 Band = 'C'
 
-# Lattice order selector: Write an integer number representing the number of stage of the D2E filter
-Lattice_Order = 5
-
 # Scan input
-Gains = np.linspace(10, 30, 5).astype(int)
-dLs = np.linspace(25, 35, 1)
-dL0s = np.linspace(25, 65, 3)
-plot_kind = 1 if len(dL0s) == 1 else 2  # 1 = dL constant, 2 = dL variable
+Gains = np.linspace(10, 30, 3).astype(int)
+xs = np.linspace(25, 35, 3)  # Variable x that change the dL of the structure
+ys = np.linspace(90, 120, 1)  # Variable y that change the dL of the structure
+plot_kind = 1 if len(xs) == 1 else 2  # 1 = dL constant, 2 = dL variable
 precision_digits = 3
 
 # Saving information
-file_name_save = f"Band {Band} - Order {Lattice_Order} - High Range ({dLs[0]} - {dLs[-1]})"
+file_name_save = f"Band {Band} - xs ({xs[0]} - {xs[-1]}) - ys ({ys[0]} - {ys[-1]})"
 file_path_save = "Data C-Band/"
 
 # Load data
@@ -117,59 +111,75 @@ input_field = [np.ones(n_points), np.zeros(n_points)]
 
 waveguide_args_balance = {
     'neff0': 1.489 if Band == 'C' else 1.486,
-    'ng':  1.54 if Band == 'L' else 1.54,
-    'wavelength0':  1.55 if Band == 'C' else 1.59,    # um
-    'L': 0.3,                                         # cm
-    'A': 0.4,                                         # dB/cm
-    'B': 4655.664,                                    # um ** -2
-    'C': 3.614e-04,                                   # um ** 2
-    'D': 0.05,                                        # dB/cm
-    'wl1': 1.502293,                                  # um
-    'wl2': 1.511449,                                  # um
+    'ng': 1.54 if Band == 'L' else 1.54,
+    'wavelength0': 1.55 if Band == 'C' else 1.59,  # um
+    'L': 0.3,  # cm
+    'A': 0.4,  # dB/cm
+    'B': 4655.664,  # um ** -2
+    'C': 3.614e-04,  # um ** 2
+    'D': 0.05,  # dB/cm
+    'wl1': 1.502293,  # um
+    'wl2': 1.511449,  # um
     'wavelengths': wavelengths
 }
 
 # Coupler arguments
 coupler_args = {
-    'k0': np.pi/4,
+    'k0': np.pi / 4,
     'k1': -2.63,
     'k2': 0,
-    'wavelength0': 1.55 if Band == 'C' else 1.59 ,
+    'wavelength0': 1.55 if Band == 'C' else 1.59,
+    'wavelengths': wavelengths}
+
+waveguide_choice_args = {
+    'input_choice': 1,
+    'output_choice':1,
     'wavelengths': wavelengths}
 
 coupling_loss_args = {
     'coupling_losses': 0,
     'wavelengths': wavelengths}
 
-heater_number = Lattice_Order * 2 + 1
-
 # BUILDING BLOCKS
+n_unbalances = 4
+unbalances_codes = [4, 8, 16, 20]
+heater_codes = [2, 4, 6, 8, 10, 14, 16, 18, 20, 22]
+# B U B U B - B U B U B
 structures = {0: Pbb.WaveguideFacet(**coupling_loss_args)}
-
-for idx in range(Lattice_Order):
+for idx in range(2):
     structures[4 * idx + 1] = Pbb.Coupler(**coupler_args)
     structures[4 * idx + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
     structures[4 * idx + 3] = Pbb.Coupler(**coupler_args)
-    structures[4 * idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_balance) # Changed to unbalance later in the code
-structures[4*Lattice_Order + 1] = Pbb.Coupler(**coupler_args)
-structures[4*Lattice_Order + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
-structures[4*Lattice_Order + 3] = Pbb.Coupler(**coupler_args)
-structures[4*Lattice_Order + 4] = Pbb.WaveguideFacet(**coupling_loss_args)
+    structures[4 * idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_balance)  # Changed to unbalance later in the code
+structures[9] = Pbb.Coupler(**coupler_args)
+structures[10] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+structures[11] = Pbb.Coupler(**coupler_args)
+structures[12] = Pbb.WaveguideChoice(**waveguide_choice_args)
+for idx in range(2):
+    structures[4 * idx + 13] = Pbb.Coupler(**coupler_args)
+    structures[4 * idx + 14] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+    structures[4 * idx + 15] = Pbb.Coupler(**coupler_args)
+    structures[4 * idx + 16] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+structures[21] = Pbb.Coupler(**coupler_args)
+structures[22] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+structures[23] = Pbb.Coupler(**coupler_args)
+structures[24] = Pbb.WaveguideFacet(**coupling_loss_args)
 
 max_ripples = {}
 max_ripples_sum = {}
 
 # Test constant dL combination against all gain profiles
 for Gain in Gains:
-    for dL0 in dL0s:
-        for dL in dLs:
-            code = f"gain{Gain}_dL0{dL0}_dL{dL}"
-            print(f"Simulation started: gain {Gain} dB, dL0 {dL0} um, dL: {dL}")
+    for x in xs:
+        for y in ys:
+            code = f"gain{Gain}_x{x}_y{y}"
+            print(f"Simulation started: gain {Gain} dB, x {x} um, y: {y} um")
+
             # Lattice components generation (Unbalance)
-            for idx in range(Lattice_Order):
+            for idx in range(n_unbalances):
                 waveguide_args_unbalance = waveguide_args_balance.copy()
-                waveguide_args_unbalance['dL'] = dL0 if idx == 0 else dL
-                structures[4 * idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_unbalance)
+                waveguide_args_unbalance['dL'] = x if idx < 3 else y
+                structures[unbalances_codes[idx]] = Pbb.DoubleWaveguide(**waveguide_args_unbalance)
 
             # Lattice component finalization
             Lattice = Pbb.ChipStructure(structures)
@@ -179,7 +189,7 @@ for Gain in Gains:
             minimum_error = np.inf
             optimal_phase = None
             for i in range(10):
-                initial_heater_phase = np.random.uniform(0, np.pi*2, heater_number)
+                initial_heater_phase = np.random.uniform(0, np.pi*2, len(heater_codes))
                 optimization = opt.minimize(calculate_output_error, x0=initial_heater_phase, args=(Lattice, targets[Gain]))
                 if optimization.fun < minimum_error:
                     minimum_error = optimization.fun
@@ -190,19 +200,23 @@ for Gain in Gains:
 
             # Extract useful information
             max_ripple = np.round(max(abs(output_power_bar_dB - targets[Gain])), precision_digits)
-            print(f"dL0: {dL0}, dL: {dL}, Max ripple: {max_ripple} dB")
+            print(f"x: {x}, y: {y}, Max ripple: {max_ripple} dB")
 
             max_ripples[code] = str(max_ripple)
 
-for dL0 in dL0s:
-    for dL in dLs:
-        code_max = f"_dL0{dL0}_dL{dL}"
+for x in xs:
+    for y in ys:
+        code_max = f"_x{x}_y{y}"
         max_ripples_sum[code_max] = 0
         for Gain in Gains:
-            code = f"gain{Gain}_dL0{dL0}_dL{dL}"
+            code = f"gain{Gain}_x{x}_y{y}"
             max_ripples_sum[code_max] += float(max_ripples[code])
 
-final_plot(dL0s, dLs, 'dL0', 'dL', Gains, max_ripples, max_ripples_sum, plot_kind)
+final_plot(xs, ys, 'x', 'y', Gains, max_ripples, max_ripples_sum, plot_kind)
+
+# Plot Data C-Band: Saving
+plt.savefig(file_path_save + file_name_save + ".png")
+plt.show()
 
 # Save data
 save_data = {'max_ripples':max_ripples,

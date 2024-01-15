@@ -155,7 +155,4 @@ max_ripple = np.round(max(abs(output_power_bar_dB - targets[gain])), precision_d
 max_ripple_internal = np.round(max(abs(output_power_bar_dB[target_index_internal:-target_index_internal] - targets[gain][target_index_internal:-target_index_internal])), precision_digits)
 square_error = np.round(np.sqrt(np.sum((output_power_bar_dB - targets[gain])**2)), precision_digits)
 print(f"dLs: {dLs} Max ripple: {max_ripple} dB, Max ripple internal: {max_ripple_internal} dB, Square Error: {square_error} dB")
-
-FSRs = c / np.array(dLs) / waveguide_args_balance['ng']
-print(FSRs)
 print(f"Power Consumption: {np.sum(np.abs(optimal_phase%(2*np.pi)-np.pi)*220/np.pi)} mW")
