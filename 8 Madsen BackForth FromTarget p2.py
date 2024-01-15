@@ -1,14 +1,18 @@
 """
-Code Data 2023/04/20
+Code Improved 2024/01/15
 Author Mattia
 """
 
 import Photonic_building_block as Pbb
+from scipy.optimize import curve_fit
+import scipy.constants as const
 import matplotlib.pyplot as plt
-import numpy as np
 import scipy.signal as ss
+import numpy as np
+
 
 # Polynomials in this script are expressed as A(z) = A[0] + A[1]*z^-1 + A[2]*z^-2 ...
+
 
 def calculate_next_layer_balance(lattice_order, a_n, b_n, k, phi, n):
     """
@@ -90,7 +94,6 @@ def find_balance_phase(lattice_k, wanted_k):
     else:
         return np.pi
 
-
 def find_correction_phase(lattice_k, coupler_estimate, phis_estimate):
     """
     This is the Beyond-Madsen algorithm. This function takes the phase and coupler estimates from the Madsen algorithm (Lattice Order + 1 parameters)
@@ -124,7 +127,6 @@ def find_correction_phase(lattice_k, coupler_estimate, phis_estimate):
     lattice_phases = [coupler_phase]
     for i in range(lattice_order):
         # FIRST CALCULATION
-       # phi_tot = 0 if i == 0 else -np.sum(phis_estimate[1:i + 1])
         phi_tot = -np.sum(phis_estimate[1:i + 1])
         a, b = calculate_next_layer_balance(lattice_order, a_next, b_next, lattice_k, phi_tot, 2 * i + 1)
         coupler_phase = find_balance_phase(lattice_k, coupler_estimate[i + 1])
@@ -203,7 +205,7 @@ def find_valid_b(lattice_order, a_n, gamma=1, to_plot=False):
 
     # Take polynomial by roots
     b_n = np.poly(b_roots)
-    b_n = b_n[::-1] # Remember I define the polynomial opposite to numpy, so I have to reverse the order
+    b_n = b_n[::-1]  # Remember I define the polynomial opposite to numpy, so I have to reverse the order
 
     # Normalize the output
     alpha = np.sqrt(-(a_n[0] * a_n[-1]) / (b_n[0] * b_n[-1]))
@@ -277,46 +279,154 @@ def z_cut(f, f_index):
     cut_field = field_from_z_coefficients(fft_f_coefficients, num_points)
     return cut_field, np.array(fft_f_coefficients)
 
-# Input data
-Lattice_Order = 5
-n_points = 500
-c = 299.792458 # um * THz
-dL = 30        # um
-balance_trait = 0.25 #cm
-wavelength_neff = 1.55 # um
-neff = 1.46    # @ wavelength_neff
-ng = 1.52      # @ wavelength_neff
-FSR = c/dL/ng # THz
-K = 0.55     # No wavelength dependent coupler
-input_field = np.array([[1, 0], [0,  0]])
-lpp = {
-    'A': 4.14701474e-01,    # dB/cm
-    'B': 4655.66418,        # um ** -2
-    'C': 3.61418589e-04,    # um ** 2
-    'D': 4.02334320e-02,    # dB/cm
-    'wl1': 1.50229361,      # um
-    'wl2': 1.51144949       # um
-}# Propagation losses parameters
+# Define the line equation (y = mx + c) used for fitting the first order derivative
+def line_func(x, m, c):
+    return m * x + c
 
-losses_coupling = -2 #dB per facet
-frequencies = np.linspace(192, 192+FSR, n_points, endpoint=False)
-normalized_frequencies = np.linspace(0, 1, n_points, endpoint=False)
-wavelengths = c/frequencies
+# Define the parabola equation (y = ax^2 + bx + c) used for fitting the second order derivative
+def parabola_func(x, a, b, c):
+    return a * x**2 + b * x + c
 
-propagation_losses = -((lpp['A'] - lpp['D']) / 2 * (1 / (1 + lpp['B']*(wavelengths - lpp['wl1'])**2) + np.exp(-(wavelengths - lpp['wl2'])**2/lpp['C'])) + lpp['D']) * balance_trait * (2 * Lattice_Order + 1)
+def extend_extreme(target_values, n_points_extension):
+    """
+    Calculate an extended target. By calling n the length of target_values, the first n elements of the extended target coincide with the target values in input.
+    The last n_points_extension elements are generated such that the function became periodic with first and second order derivative continuous.
+    :param target_values: Target value to be extended.
+    :param n_points_extension: N points of the extension
+    :return: The concatenation of the target values with the new extended target.
+    """
+
+    # Start and final point of the extension
+    p_s = target_values[-1]
+    p_f = target_values[0]
+
+    # Start and final first order derivative of the extension. Obtained fitting a line
+    n_points_fitting = 5
+    x = np.linspace(0, n_points_fitting-1, n_points_fitting)
+    line_params, _ = curve_fit(line_func, x, target_values[0:n_points_fitting])
+    m_line, c_line = line_params
+    p_f_der = m_line * n_points_extension
+
+    line_params, _ = curve_fit(line_func, x, target_values[-n_points_fitting:])
+    m_line, c_line = line_params
+    p_s_der = m_line * n_points_extension
+
+    # Start and final second order derivative of the extension. Obtained fitting a parabola
+    parabola_params, _ = curve_fit(parabola_func, x, target_values[0:n_points_fitting])
+    a_parabola, b_parabola, c_parabola = parabola_params
+    p_f_der2 = a_parabola * 2 * n_points_extension
+
+    parabola_params, _ = curve_fit(parabola_func, x, target_values[-n_points_fitting])
+    a_parabola, b_parabola, c_parabola = parabola_params
+    p_s_der2 = a_parabola * 2 * n_points_extension
+
+    # Variable used to calculate the interpolation
+    A = p_f - p_s - p_s_der - p_s_der2 / 2
+    B = p_f_der - p_s_der - p_s_der2
+    C = p_f_der2 - p_s_der2
+    a = 6 * A - 3 * B + C / 2
+    b = -15 * A + 7 * B - C
+    c = 10 * A - 4 * B + C / 2
+    d = p_s_der2 / 2
+    e = p_s_der
+    f = p_s
+    x_var = np.linspace(1 / n_points_extension, 1, n_points_extension, endpoint=False)
+
+    # Calculate the extension of the target with the variable just obtained
+    extension = a * x_var ** 5 + b * x_var ** 4 + c * x_var ** 3 + d * x_var ** 2 + e * x_var + f
+
+    # Crop the extension to avoid 0dBm (or 1 in linear) because it's impossible for a filter to reach such values.
+    extension = [y_val if y_val <= 1 else 1 for y_val in extension]
+
+    # Return the complete target
+    return np.concatenate([target_values, extension])
+
 # LINEAR TARGET POWER (mW) AND FIELD USING HILBERT OPERATOR. MUST BE THE WANTED TARGET, WITHOUT COUPLING LOSSES!
-# Target_dB = -20 * (normalized_frequencies - 0.5) ** 2
-Target_dB = (-10+normalized_frequencies*10)
-# Target_dB = ( -2+normalized_frequencies*0)
-# Target_dB = np.abs(np.sin(5.2 * normalized_frequencies * np.pi)) * 0.8 + 0.1
+# LOAD DATA
+file_path = "P:/Drive condivisi/4 - Technology Office/4 - Design and Simulations/P03 - Amplifier/06 - C+L band EDFA/DualStageC+L - seprated C, FIXGFF.vtmu_pack/Inputs/GEF_30.txt"
+data = np.loadtxt(file_path, skiprows=2)
+saved_frequencies = data[:, 0] / 1e12
+saved_profile_dB = data[:, 1]
+saved_df = saved_frequencies[1] - saved_frequencies[0]  # Small variation between points
+saved_n_points = len(saved_frequencies)
 
-Target_with_propagation = Target_dB-propagation_losses-max(Target_dB-propagation_losses)
+# Flat saved profile
+tilt_profile_dB = np.linspace(saved_profile_dB[0], saved_profile_dB[-1], saved_n_points, endpoint=True)
+saved_profile_dB -= tilt_profile_dB
+saved_profile = 10**(saved_profile_dB/10)
+
+# EXTEND FREQUENCY TO WANTED FSR
+n_points = int(saved_n_points * 1.1)
+FSR = (n_points - 1) * saved_df                               # Augmented bandwidth of saved data
+n_point_added = n_points - saved_n_points
+frequencies = np.linspace(saved_frequencies[0], saved_frequencies[0]+FSR, n_points)
+Target = extend_extreme(saved_profile, n_point_added)
+Target_dB = 10*np.log10(Target)
+
+# INPUTS
+c = const.c/1000000
+wavelength0 = 1.55
+neff = 1.489
+ng = 1.54
+dL = c/ng/FSR
+wavelengths = c/frequencies
+input_field = [np.ones(n_points), np.zeros(n_points)]
+
+waveguide_args_balance = {
+    'neff0': neff,
+    'ng': ng,
+    'L': 0.01,
+    'A': 0.4,           # dB/cm
+    'B': 4655.664,      # um ** -2
+    'C': 3.614e-04,     # um ** 2
+    'D': 0.05,          # dB/cm
+    'wavelength1': 1.502293,       # um
+    'wavelength2': 1.511449,       # um
+    'wavelength0': wavelength0,    # um
+    'wavelengths': wavelengths
+}
+waveguide_args_unbalance = waveguide_args_balance.copy()
+waveguide_args_unbalance['dL'] = dL
+
+# Coupler arguments
+coupler_value = np.pi/4
+coupler_args = {
+    'k0': coupler_value,
+    'wavelength0': 1.55,
+    'wavelengths': wavelengths}
+
+coupling_loss_args = {
+    'coupling_losses': 0,
+    'wavelengths': wavelengths}
+
+filter_order = 4
+
+# BUILDING BLOCKS
+structures = {0: Pbb.WaveguideFacet(**coupling_loss_args)}
+
+for idx in range(filter_order):
+    structures[4*idx + 1] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+    structures[4*idx + 3] = Pbb.Coupler(**coupler_args)
+    structures[4*idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_unbalance)
+structures[4*filter_order + 1] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+structures[4*filter_order + 3] = Pbb.Coupler(**coupler_args)
+structures[4*filter_order + 4] = Pbb.WaveguideFacet(**coupling_loss_args)
+
+
+wavelengths = c / frequencies
+propagation_losses = -((waveguide_args_balance['A'] - waveguide_args_balance['D']) / 2 * (1 / (1 + waveguide_args_balance['B']*(wavelengths - waveguide_args_balance['wavelength1'])**2) + np.exp(-(wavelengths - waveguide_args_balance['wavelength2'])**2/waveguide_args_balance['C'])) + waveguide_args_balance['D']) * waveguide_args_balance['L'] * (2 * filter_order + 1)
+dL = c / FSR / ng       # um
+print(f"dL to reach wanted FSR is {dL} um")
+
+Target_with_propagation = Target_dB-propagation_losses
 Target_Field_amplitude = np.sqrt(10**(Target_with_propagation / 10))
 Target_Field_phase = -ss.hilbert(np.log(Target_Field_amplitude))
 Target_Field = Target_Field_amplitude * np.exp(1j*np.imag(Target_Field_phase))  # NEEDED FOR HAVING A FEASIBLE FIELD
 
 # LINEAR CUT TARGET FIELD (removed high order frequencies)
-Target_Field_cut, Target_As = z_cut(Target_Field, Lattice_Order)
+Target_Field_cut, Target_As = z_cut(Target_Field, filter_order)
 
 # INVERT ROOTS
 original_roots = np.roots(Target_As[::-1])
@@ -325,48 +435,40 @@ New_Target_As = np.poly(roots)[::-1]
 New_Target_As = New_Target_As * np.sum(np.abs(Target_As)) / np.sum(np.abs(New_Target_As))
 
 # MADSEN ALGORITHM B PART -> find the correct target B
-Target_As, Target_Bs = find_valid_b(Lattice_Order, New_Target_As, to_plot=False)
+Target_As, Target_Bs = find_valid_b(filter_order, New_Target_As, to_plot=False)
 
 # MADSEN ALGORITHM for a LATTICE formed by only couplers and unbalance (BACK)
 K_estimate, Phis_estimate, As_estimate, Bs_estimate = reverse_transfer_function(Target_As, Target_Bs)
 
 # BEYOND MADSEN -> Re-adjust the unbalance phases to compensate the coupler and CBC difference
-afs, bfs, phases = find_correction_phase(K, K_estimate, Phis_estimate)
+afs, bfs, phases = find_correction_phase(np.sin(coupler_value)**2, K_estimate, Phis_estimate)
 
 # NEFF COMPENSATION
 Neff_shift_phis = np.zeros(len(phases))
-Neff_shift_phis[1::2] = np.ones(Lattice_Order) * 2 * np.pi * ((neff - ng) * dL / wavelength_neff + frequencies[0] / FSR)
+Neff_shift_phis[1::2] = np.ones(filter_order) * 2 * np.pi * ((neff - ng) * dL / wavelength0 + frequencies[0] / FSR)
 # The unbalance shifts must compensate the selected band (frequencies[0] / FSR) because the filter consider as regular bands the
 # multiples of the FSR, while we want the filter to be set in a given region of the spectrum
 # The unbalance must also compensate the difference between neff and ng (neff - ng) * dL / wavelength_neff.
-
 # LATTICE GENERATION
-Couplers = []
-Balance_traits = []
-Unbalance_traits = []
-for idc in range(2*Lattice_Order+2):
-    Couplers += [Pbb.Coupler([c/frequencies[-1], c/frequencies[0]], (K+0.05, K-0.05))]
-for idb in range(Lattice_Order+1):
-    Balance_traits += [Pbb.Balanced_propagation(neff, ng, wavelength_neff, lpp, balance_trait)]
-for idu in range(Lattice_Order):
-    Unbalance_traits += [Pbb.Unbalanced_propagation(neff, ng, wavelength_neff, lpp, balance_trait, dL)]
-Lattice = Pbb.Chip_structure([Couplers, Balance_traits, Unbalance_traits], ['C', 'B', 'C', 'U'] * Lattice_Order + ['C', 'B', 'C'], losses_coupling)
-heater_order = ['B', 'U'] * Lattice_Order + ['B']
+Lattice = Pbb.ChipStructure(structures)
+Lattice.calculate_internal_transfer_function()
 
 # LATTICE OUTPUT CALCULATION
-Lattice.set_heaters(phases-Neff_shift_phis, heater_order)
-S = Lattice.calculate_S_matrix(wavelengths)
-output_power = Pbb.calculate_outputs(input_field, S, dB=True)
+phis_estimate_dict = {}
+for idp, phi_estimate in enumerate(phases):
+    phis_estimate_dict[idp * 2 + 2] = phi_estimate-Neff_shift_phis[idp]
+
+Lattice.set_heaters(phis_estimate_dict)
+Lattice.calculate_transfer_function()
+output_field = Lattice.calculate_output(input_field)
 
 # PLOTTING
-plt.figure(3)
-plt.plot(frequencies, Target_dB-max(Target_dB-propagation_losses-losses_coupling*2), label="Power Target")
-# plt.plot(frequencies, Target_with_propagation-max(Target_dB-propagation_losses-losses_coupling*2), label="Power Target compensating PL")
-# plt.plot(frequencies, 10*np.log10(np.abs(Target_Field_cut)**2)-max(Target_dB-propagation_losses-losses_coupling*2), label="Power Target Cut")
-plt.plot(frequencies, output_power[:, 0] , label="PBB Output Bar")
-plt.xlabel("Frequencies")
-plt.ylabel("Filter dB Transfer Function")
-plt.grid()
+plt.figure(3, figsize=[8, 6], dpi=100)
+plt.plot(saved_frequencies, saved_profile_dB, 'o', label="Saved Target", color='#0087DA', linewidth='2')
+plt.plot(frequencies, Target_dB, 'x', label="Target", color='#0087DA', linewidth='2')
+plt.plot(frequencies, 20*np.log10(np.abs(output_field[0])), label="D2E", color='#004D8E', linewidth='2')
+plt.xlabel("Frequencies [THz]")
+plt.ylabel("Filter [dB] Transfer Function")
 plt.legend()
+plt.grid()
 plt.show()
-
