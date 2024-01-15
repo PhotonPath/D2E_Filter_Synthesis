@@ -3,18 +3,17 @@ from matplotlib.figure import Figure
 import tkinter as tk
 
 """
-Code Data 2023/04/20
+Code Improved 2024/01/14
 Author Mattia
 """
 
 import Photonic_building_block as Pbb
+import scipy.constants as const
 import matplotlib.pyplot as plt
-import numpy as np
 import scipy.signal as ss
+import numpy as np
 
-# Function for BACKFORTH MADSEN
-
-
+# Function for BACK-FORTH MADSEN
 def calculate_next_layer_balance(lattice_order, a_n, b_n, k, phi, n):
     """
     Uses the value of the previous An Bn polynomial to calculate An+1 Bn+1
@@ -128,7 +127,6 @@ def find_correction_phase(lattice_k, coupler_estimate, phis_estimate):
     lattice_phases = [coupler_phase]
     for i in range(lattice_order):
         # FIRST CALCULATION
-       # phi_tot = 0 if i == 0 else -np.sum(phis_estimate[1:i + 1])
         phi_tot = -np.sum(phis_estimate[1:i + 1])
         a, b = calculate_next_layer_balance(lattice_order, a_next, b_next, lattice_k, phi_tot, 2 * i + 1)
         coupler_phase = find_balance_phase(lattice_k, coupler_estimate[i + 1])
@@ -282,7 +280,6 @@ def z_cut(f, f_index):
     return cut_field, np.array(fft_f_coefficients)
 
 # GUI
-
 class PlotGUI(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -304,7 +301,7 @@ class PlotGUI(tk.Tk):
         self.canvas.get_tk_widget().pack(expand=True, fill="both")
 
         # Canvas Drawing
-        self.fig2 = Figure(figsize=(5, 4), dpi=100)
+        self.fig2 = Figure(figsize=(8, 6), dpi=100)
         self.fig2_subplot = self.fig2.add_subplot(111)
         self.canvas_plot = FigureCanvasTkAgg(self.fig2, master=self.secondary_window)
         self.canvas_plot.get_tk_widget().pack(expand=True, fill="both")
@@ -340,28 +337,17 @@ class PlotGUI(tk.Tk):
 
         # Lattice Stuff
         self.n_points = 500
-        self.c = 299.792458  # um * THz
-        self.dL = 30  # um
-        self.wavelength_neff = 1.55  # um
-        self.neff = 1.46  # @ wavelength_neff
-        self.ng = 1.52  # @ wavelength_neff
-        self.FSR = self.c / self.dL / self.ng  # THz
-        self.frequencies = np.linspace(192, 192 + self.FSR, self.n_points)
+        self.input_field = [np.ones(self.n_points), np.zeros(self.n_points)]
+        self.dL = 30                            # um
+        self.wavelength0 = 1.55                 # um
+        self.neff = 1.5                         # @ wavelength_neff
+        self.ng = 1.5                           # @ wavelength_neff
+        self.FSR = const.c / self.dL / self.ng  # THz
+        self.frequencies = np.linspace(191, 191 + self.FSR, self.n_points)
         self.normalized_frequencies = np.linspace(0, 1, self.n_points, endpoint=False)
-        self.wavelengths = self.c / self.frequencies
+        self.wavelengths = const.c / self.frequencies
         self.K = 0.5
         self.K_slope = 0 # Wavelength dependent coupler
-        self.input_field = np.array([[1, 0], [0, 0]])
-        self.losses_propagation_parameter = {
-            'A': 0,
-            'B': 0,
-            'C': 0,
-            'D': 0,
-            'wl1': 1.5,
-            'wl2': 1.6
-        }
-        self.losses_coupling = 0
-        self.heater_order = ['B', 'U'] * self.lattice_order + ['B']
         self.lattice = self.generate_lattice()
 
         # Event
@@ -402,16 +388,18 @@ class PlotGUI(tk.Tk):
         self.fig2_subplot.plot(self.frequencies, 10*np.log10(g), label="Lattice Profile")
         self.fig2_subplot.grid()
         self.fig2_subplot.legend()
+        self.fig2_subplot.set_xlabel("Frequency")
+        self.fig2_subplot.set_ylabel("Filter dB transfer function")
         self.canvas_plot.draw()
 
     def move_target(self, event):
         if self.is_target_selected:
             self.fig_subplot.clear()
             if self.selected_target == 0 or self.selected_target == self.n_target_points - 1:
-                self.target_position[0][1] = (event.y - 55) / 0.7
-                self.target_position[-1][1] = (event.y - 55) / 0.7
+                self.target_position[0][1] = (event.y - 55) / 0.35
+                self.target_position[-1][1] = (event.y - 55) / 0.35
             else:
-                self.target_position[self.selected_target][1] = (event.y - 55) / 0.7
+                self.target_position[self.selected_target][1] = (event.y - 55) / 0.35
             self.draw_all_target_points()
             self.update_plot()
 
@@ -422,24 +410,49 @@ class PlotGUI(tk.Tk):
         self.target_function = np.polyfit(np.array(self.target_position)[:, 0]/self.dimensions[0], np.array(self.target_position)[:, 1]/self.dimensions[1]*-10, self.lattice_order+1)
         self.fig_subplot.plot(self.normalized_frequencies, np.polyval(self.target_function, self.normalized_frequencies))
         self.fig_subplot.set_xlim(0, 1)
-        self.fig_subplot.set_ylim(-10, 0)
+        self.fig_subplot.set_ylim(-20, 0)
         self.fig_subplot.set_xlabel("Normalized Frequencies")
         self.fig_subplot.set_ylabel("Transfer Function dB")
         self.fig_subplot.grid()
         self.canvas.draw()
 
     def generate_lattice(self):
-        # LATTICE GENERATION
-        Couplers = []
-        Balance_traits = []
-        Unbalance_traits = []
-        for idc in range(2 * self.lattice_order + 2):
-            Couplers += [Pbb.Coupler([self.c/self.frequencies[-1], self.c/self.frequencies[0]], (self.K - self.K_slope, self.K + self.K_slope))]
-        for idb in range(self.lattice_order + 1):
-            Balance_traits += [Pbb.Balanced_propagation(self.neff, self.ng, self.wavelength_neff, self.losses_propagation_parameter, 0)]
-        for idu in range(self.lattice_order):
-            Unbalance_traits += [Pbb.Unbalanced_propagation(self.neff, self.ng, self.wavelength_neff, self.losses_propagation_parameter, 0, self.dL)]
-        return Pbb.Chip_structure([Couplers, Balance_traits, Unbalance_traits], ['C', 'B', 'C', 'U'] * self.lattice_order + ['C', 'B', 'C'], self.losses_coupling)
+        waveguide_args_balance = {
+            'neff0': self.neff,
+            'ng': self.ng,
+            'wavelength0': self.wavelength0,
+            'wavelengths': self.wavelengths
+        }
+        waveguide_args_unbalance = waveguide_args_balance.copy()
+        waveguide_args_unbalance['dL'] = self.dL
+
+        # Coupler arguments
+        coupler_value = np.arcsin(np.sqrt(self.K))
+        coupler_args = {
+            'k0': coupler_value,
+            'wavelength0': 1.55,
+            'wavelengths': self.wavelengths}
+
+        coupling_loss_args = {
+            'coupling_losses': 0,
+            'wavelengths': self.wavelengths}
+
+        # BUILDING BLOCKS
+        structures = {0: Pbb.WaveguideFacet(**coupling_loss_args)}
+
+        for idx in range(self.lattice_order):
+            structures[4 * idx + 1] = Pbb.Coupler(**coupler_args)
+            structures[4 * idx + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+            structures[4 * idx + 3] = Pbb.Coupler(**coupler_args)
+            structures[4 * idx + 4] = Pbb.DoubleWaveguide(**waveguide_args_unbalance)
+        structures[4 * self.lattice_order + 1] = Pbb.Coupler(**coupler_args)
+        structures[4 * self.lattice_order + 2] = Pbb.DoubleWaveguide(**waveguide_args_balance)
+        structures[4 * self.lattice_order + 3] = Pbb.Coupler(**coupler_args)
+        structures[4 * self.lattice_order + 4] = Pbb.WaveguideFacet(**coupling_loss_args)
+
+        Lattice = Pbb.ChipStructure(structures)
+        Lattice.calculate_internal_transfer_function()
+        return Lattice
 
     def update_k(self, action, value, end_action=None):
         if end_action is None:
@@ -471,14 +484,19 @@ class PlotGUI(tk.Tk):
 
         # NEFF COMPENSATION
         Neff_shift_phis = np.zeros(len(phases))
-        Neff_shift_phis[1::2] = np.ones(self.lattice_order) * 2 * np.pi * ((self.neff - self.ng) * self.dL / self.wavelength_neff + self.frequencies[0] / self.FSR)
+        Neff_shift_phis[1::2] = np.ones(self.lattice_order) * 2 * np.pi * ((self.neff - self.ng) * self.dL / self.wavelength0 + self.frequencies[0] / self.FSR)
         # Neff_shift_phis[0] = np.pi
         # Neff_shift_phis[-1] = np.pi
 
         # LATTICE OUTPUT CALCULATION
-        self.lattice.set_heaters(phases-Neff_shift_phis, self.heater_order)
-        S = self.lattice.calculate_S_matrix(self.wavelengths)
-        output_power = Pbb.calculate_outputs(self.input_field, S, dB=False)[:, 0]
+        phis_estimate_dict = {}
+        for idp, phi_estimate in enumerate(phases):
+            phis_estimate_dict[idp * 2 + 2] = phi_estimate - Neff_shift_phis[idp]
+
+        self.lattice.set_heaters(phis_estimate_dict)
+        self.lattice.calculate_transfer_function()
+        output_field = self.lattice.calculate_output(self.input_field)
+        output_power = np.abs(output_field[0])**2
         return output_power
 
 GUI = PlotGUI()
